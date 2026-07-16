@@ -1,0 +1,212 @@
+// alfanar NCR Management System — Prisma schema
+// SQLite for zero-setup local use. NOTE: SQLite provider supports neither enums
+// nor Json scalars, so enum-like fields are String (validated in src/lib/domain.ts)
+// and importRaw stores a JSON string. When switching to PostgreSQL: change the
+// datasource, convert role/status/gate/decision/category to native enums and
+// importRaw to Json — nothing else needs to move.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  name         String
+  passwordHash String
+  role         String // ORIGINATOR | QC_ENGINEER | QC_MANAGER | ADMIN | VIEWER
+  department   String?
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+
+  ncrsCreated   Ncr[]          @relation("NcrCreatedBy")
+  transitions   Transition[]
+  approvals     Approval[]
+  auditLogs     AuditLog[]
+  comments      Comment[]
+  attachments   Attachment[]
+  notifications Notification[]
+}
+
+model Ncr {
+  id   Int @id @default(autoincrement())
+  // Excel: SL No. — per-year sequence. Not unique in legacy data; new records get max+1.
+  slNo Int
+  year Int
+
+  date DateTime // Excel: Date (NCR raised)
+  // Excel: NCR No. (SAP). NOT unique in legacy data: one SAP notification can cover
+  // several defect lines (329 duplicated numbers in 2025+2026). Uniqueness is enforced
+  // app-side for newly created NCRs only.
+  ncrNo Int
+
+  so              String? // Excel: SO#
+  fg              String? // Excel: FG#
+  prO             String? // Excel: Pr.O#
+  projectName     String?
+  panelRef        String?
+  panelType       String?
+  itemCode        String?
+  itemName        String?
+  itemDescription String?
+  make            String?
+  totalQty        Float?
+  defectQty       Float?
+  serialsJson     String  @default("[]") // Excel: Serial No. — JSON string[]
+  defectDetails   String?
+  defectType      String? // Manufacturing defect | Damaged | Missing
+  ncType          String? // Type Of Nonconformance
+  cause           String? // Cause Of Nonconformance
+
+  disposition     String? // controlled vocab; chosen at DISPOSITION_PROPOSED
+  dispositionNote String? // legacy STATUS free-text remainder / extracted notes
+
+  status          String   @default("DRAFT") // NcrStatus in domain.ts
+  statusChangedAt DateTime @default(now()) // denormalized: when current status was entered (overdue calc)
+
+  closingDate    DateTime? // only writable via Gate 2 (closure approval)
+  sapClosed      Boolean   @default(false) // Excel: Status in SAP (manual checklist, no SAP integration yet)
+  sapClosingDate DateTime?
+
+  responsiblePerson String?
+  responsibleDept   String? // Testing | Production | QC | Busbar | Store | Planning
+  remarks           String?
+
+  importRaw      String? // JSON of the original Excel row, for traceability
+  importedLegacy Boolean @default(false)
+  needsTriage    Boolean @default(false) // legacy STATUS could not be mapped — manual review
+
+  createdById String?
+  createdBy   User?   @relation("NcrCreatedBy", fields: [createdById], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  transitions Transition[]
+  approvals   Approval[]
+  comments    Comment[]
+  attachments Attachment[]
+  auditLogs   AuditLog[]
+
+  @@index([ncrNo])
+  @@index([status])
+  @@index([year, slNo])
+  @@index([make])
+  @@index([projectName])
+  @@index([panelType])
+  @@index([date])
+}
+
+// One row per workflow state change — the NCR timeline.
+model Transition {
+  id         Int      @id @default(autoincrement())
+  ncrId      Int
+  ncr        Ncr      @relation(fields: [ncrId], references: [id], onDelete: Cascade)
+  fromStatus String
+  toStatus   String
+  action     String
+  actorId    String
+  actor      User     @relation(fields: [actorId], references: [id])
+  comment    String?
+  createdAt  DateTime @default(now())
+
+  @@index([ncrId])
+}
+
+// Immutable human approval record. There is NO update path for this model —
+// gates are decided once; a re-submission creates a new row.
+model Approval {
+  id         Int      @id @default(autoincrement())
+  ncrId      Int
+  ncr        Ncr      @relation(fields: [ncrId], references: [id], onDelete: Cascade)
+  gate       String // DISPOSITION | CLOSURE
+  decision   String // APPROVED | REJECTED
+  approverId String
+  approver   User     @relation(fields: [approverId], references: [id])
+  comment    String? // mandatory when decision = REJECTED (enforced in workflow service)
+  createdAt  DateTime @default(now())
+
+  @@index([ncrId])
+}
+
+model AuditLog {
+  id        Int      @id @default(autoincrement())
+  ncrId     Int?
+  ncr       Ncr?     @relation(fields: [ncrId], references: [id], onDelete: Cascade)
+  actorId   String?
+  actor     User?    @relation(fields: [actorId], references: [id])
+  action    String // FIELD_CHANGE | TRANSITION | APPROVAL | CREATE | IMPORT | LOGIN | VOCAB | USER_ADMIN
+  field     String?
+  before    String?
+  after     String?
+  createdAt DateTime @default(now())
+
+  @@index([ncrId])
+  @@index([createdAt])
+}
+
+model Comment {
+  id        Int      @id @default(autoincrement())
+  ncrId     Int
+  ncr       Ncr      @relation(fields: [ncrId], references: [id], onDelete: Cascade)
+  authorId  String
+  author    User     @relation(fields: [authorId], references: [id])
+  body      String
+  createdAt DateTime @default(now())
+
+  @@index([ncrId])
+}
+
+model Attachment {
+  id           Int      @id @default(autoincrement())
+  ncrId        Int
+  ncr          Ncr      @relation(fields: [ncrId], references: [id], onDelete: Cascade)
+  filename     String
+  storedPath   String
+  mime         String
+  size         Int
+  uploadedById String
+  uploadedBy   User     @relation(fields: [uploadedById], references: [id])
+  createdAt    DateTime @default(now())
+
+  @@index([ncrId])
+}
+
+model Notification {
+  id        Int       @id @default(autoincrement())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  ncrId     Int?
+  type      String // QUEUE | APPROVAL_RESULT | REJECTED_BACK | OVERDUE
+  message   String
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId, readAt])
+}
+
+// Admin-editable controlled vocabularies (Panel Type, Defect Type, Cause, Make,
+// Disposition, Project, NC Type) + Responsible people directory.
+model VocabItem {
+  id        Int     @id @default(autoincrement())
+  category  String // PANEL_TYPE | DEFECT_TYPE | NC_TYPE | CAUSE | MAKE | DISPOSITION | PROJECT | DEPARTMENT
+  value     String
+  active    Boolean @default(true)
+  sortOrder Int     @default(0)
+
+  @@unique([category, value])
+}
+
+model Person {
+  id         Int     @id @default(autoincrement())
+  name       String
+  department String?
+  active     Boolean @default(true)
+
+  @@unique([name, department])
+}
