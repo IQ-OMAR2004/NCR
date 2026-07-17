@@ -46,3 +46,6 @@ dev.db-journal
 test.db*
 .verify-export.xlsx
 /public/uploads/
+
+# keep the example env (real .env stays ignored above)
+!.env.example

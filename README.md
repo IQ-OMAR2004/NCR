@@ -29,6 +29,30 @@ user-created NCRs.
 npm test          # vitest: workflow gates, importer cleaning rules, validation
 ```
 
+## Deploy (Railway)
+
+This is a **server app** (server actions, Prisma, cookie auth, API routes) — it cannot run on
+static hosts like GitHub Pages. Deploy it to any host that runs a Node server. Railway works
+out of the box:
+
+1. **New Project → Deploy from GitHub repo** → pick this repo.
+2. Add a **Volume** and mount it at `/data` (SQLite needs a persistent disk).
+3. Set service **Variables**:
+   - `DATABASE_URL = file:/data/prod.db`
+   - `SESSION_SECRET =` a long random string
+     (`node -e "console.log(require('crypto').randomBytes(24).toString('hex'))"`).
+     The app refuses to start in production without this.
+4. Deploy. On boot, `npm run deploy:start` runs `prisma migrate deploy`, seeds the demo
+   users + vocabularies, and seeds **synthetic sample NCRs** (`prisma/seed-samples.ts`).
+
+> **The public deployment uses fabricated sample data**, not the real 2025/2026 register — a
+> public URL guarded only by the shared demo password must not expose real employee/supplier
+> data. To load the real data, run `npm run db:import` locally (it needs the two source
+> workbooks, which are intentionally **not** committed).
+
+`railway.json` and `.env.example` are included. The same steps work on Render/Fly (any host
+with a persistent disk); on Vercel, switch the Prisma datasource to a hosted Postgres first.
+
 ## Demo logins (password: `alfanar123`)
 
 | Email | Role | Can |
