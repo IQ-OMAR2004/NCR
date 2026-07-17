@@ -39,3 +39,10 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# database & runtime artifacts
+dev.db
+dev.db-journal
+test.db*
+.verify-export.xlsx
+/public/uploads/

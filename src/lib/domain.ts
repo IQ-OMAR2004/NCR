@@ -96,7 +96,9 @@ export interface TransitionRule {
   setsClosingDate?: boolean;
 }
 
-const EDITORS = ['ORIGINATOR', 'QC_ENGINEER', 'ADMIN'] as const;
+// Anyone who may create an NCR may also submit their own draft (a QC Manager
+// who raises an NCR must be able to move it forward — otherwise the draft orphans).
+const EDITORS = ['ORIGINATOR', 'QC_ENGINEER', 'QC_MANAGER', 'ADMIN'] as const;
 const REVIEWERS = ['QC_ENGINEER', 'QC_MANAGER', 'ADMIN'] as const;
 const APPROVERS = ['QC_MANAGER', 'ADMIN'] as const; // the ONLY roles that decide gates
 

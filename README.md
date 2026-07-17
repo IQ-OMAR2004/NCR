@@ -1,36 +1,140 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# alfanar NCR Management System
 
-## Getting Started
+Digital Non-Conformance Report (NCR) management for alfanar's **MV Switchgear (SG) factory** —
+replacing the Excel-based process in `Copy of NCR Details 2025/2026 SG FOR AI.xlsx` with an
+enforced workflow, mandatory human approval gates, printable rejection tags, and
+supplier-quality analytics.
 
-First, run the development server:
+Built with **Next.js 16 (App Router) · TypeScript strict · Tailwind CSS 4 · Prisma 7 · SQLite**.
+SQLite keeps local setup at zero; the Prisma schema is PostgreSQL-ready (swap the datasource,
+convert the String status/role fields to native enums).
+
+---
+
+## Quick start
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm install
+npm run setup     # migrate → seed users/vocab → import both Excel files (+ report)
+npm run dev       # http://localhost:3000
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+`npm run setup` expects the two source workbooks one directory above the app
+(`../Copy of NCR Details 2025 SG FOR AI.xlsx`, `…2026…`). The importer prints a full report:
+rows imported, every cleaning rule applied with counts, skipped rows and why.
+It is **idempotent** — re-running replaces previously imported rows and never touches
+user-created NCRs.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+npm test          # vitest: workflow gates, importer cleaning rules, validation
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Demo logins (password: `alfanar123`)
 
-## Learn More
+| Email | Role | Can |
+|---|---|---|
+| originator@alfanar.com | ORIGINATOR | create NCRs, submit, edit own drafts |
+| engineer@alfanar.com | QC_ENGINEER | review, set disposition, run actions |
+| manager@alfanar.com | QC_MANAGER | **decide both approval gates** |
+| admin@alfanar.com | ADMIN | everything + users/vocab/audit |
+| viewer@alfanar.com | VIEWER | read-only + dashboards |
 
-To learn more about Next.js, take a look at the following resources:
+## Workflow — two mandatory human gates
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```
+DRAFT → SUBMITTED → UNDER_REVIEW → DISPOSITION_PROPOSED
+      → PENDING_APPROVAL            ◄ GATE 1: QC Manager approves disposition
+      → APPROVED → ACTION_IN_PROGRESS → ACTION_COMPLETED
+      → PENDING_CLOSURE_APPROVAL    ◄ GATE 2: QC Manager approves closure
+      → CLOSED
+        (either gate can REJECT back — comment mandatory)
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Enforced **server-side** in `src/lib/workflow.ts` (not just hidden buttons):
 
-## Deploy on Vercel
+- Nothing is ever auto-approved or auto-closed. Each gate decision is an **immutable
+  `Approval` row**: approver id, timestamp, decision, comment.
+- Only `QC_MANAGER` (or `ADMIN`) can decide gates.
+- `closingDate`, `sapClosed`, `sapClosingDate` are rejected by the update service until the NCR
+  is CLOSED (i.e. after Gate 2).
+- Every field change and transition writes an `AuditLog` row (who/when/before/after).
+- Overdue flags: open > 30 days; waiting at a gate > 3 days.
+- Legacy Excel rows that were already closed import directly as `CLOSED` with
+  `importedLegacy = true` (no retroactive approvals), fully auditable via `importRaw`.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Excel column → DB field mapping
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+| # | Excel column | DB field (`Ncr`) | Import cleaning |
+|---|---|---|---|
+| 1 | SL No. | `slNo` | per-year sequence; new NCRs get max+1 |
+| 2 | Date | `date` | Date cells or `D/M/YYYY` text, parsed day-first |
+| 3 | NCR No. | `ncrNo` | required — rows without it are skipped & reported. Not unique in legacy data (one SAP notification ↔ many lines); uniqueness enforced for new records |
+| 4 | SO# | `so` | trim |
+| 5 | FG# | `fg` | trim |
+| 6 | Pr.O# | `prO` | trim |
+| 7 | Project Name | `projectName` | trim |
+| 8 | Panel Ref. | `panelRef` | trim |
+| 9 | Panel Type | `panelType` | `ALFA DT` → `ALFA-DT` |
+| 10 | Item code | `itemCode` | trim |
+| 11 | Item Name | `itemName` | trim |
+| 12 | Item description | `itemDescription` | trim |
+| 13 | Make | `make` | trim/collapse spaces, variant dedupe (e.g. trailing-dot company names), junk (`--`, `NA`) → null |
+| 14 | Total Quantity | `totalQty` | numeric |
+| 15 | Defect quantity | `defectQty` | numeric; legacy `defect > total` imported as-is but reported |
+| 16 | Serial No. | `serialsJson` | split on `, & ; newline` → JSON array |
+| 17 | Defect details | `defectDetails` | trim |
+| 18 | Defect Type | `defectType` | `Manufacturing deffect` → `Manufacturing defect` |
+| 19 | Type Of Nonconformance | `ncType` | `Material deffect` → `Material defect` |
+| 20 | Cause Of Nonconformance | `cause` | trim |
+| 21 | STATUS (legacy mixed) | `disposition` + `dispositionNote` + workflow `status` | pattern-mapped (see below) |
+| 22 | Closing Date | `closingDate` | date/text parsing; only kept when closed |
+| 23 | Status(Internal) | drives `status` | `Closed` (any case) → `CLOSED` |
+| 24 | Status in SAP | `sapClosed` | `Closed` → true |
+| 25 | SAP closing date | `sapClosingDate` | date/text parsing |
+| 26 | Responsible | `responsiblePerson` + `responsibleDept` | split `Name - Dept`, dept case-normalized, `Substore` → `Store`; also fills the `Person` directory |
+| 27 | Remarks | `remarks` | trim |
+| — | (whole row) | `importRaw` | original cells as JSON for traceability |
+
+**Legacy STATUS mapping** (`src/lib/import/clean.ts`): "Take replacement from stock",
+"Closed internally" (all typo variants), "Waiting for testing confirmation *date*"
+(date extracted, note kept), "Repaired by supplier", "Accepted as it is", "Agreed to replace
+at site by PE & PMO", "Shuffled from another project", "Defective material handover to
+substore", etc. → one of the 10 controlled dispositions + in-flight state. Unmapped values
+import with `needsTriage = true` for manual review (8 rows in the 2025 file).
+
+## Modules
+
+- **Dashboard** — KPI cards, supplier pareto (defect qty by Make), monthly trend 2025 vs 2026,
+  aging of open NCRs, panel-type/defect-type/cause breakdowns, supplier-quality table
+  (replaces the Excel "Analysis" sheets).
+- **NCR Register** — search + filters (year, status, project, panel type, make, defect type,
+  responsible, date range, overdue, triage), sortable columns, column visibility toggle,
+  filtered Excel/CSV export.
+- **New NCR** — all 27 fields, controlled vocabularies, serial chips, add-new Make/Project,
+  qty validation, department auto-suggestion by cause.
+- **NCR detail** — record editing (role/state-gated), disposition proposal, workflow timeline
+  with immutable approval records, action buttons per state, comments, photo/PDF attachments,
+  audit trail, original-Excel-row viewer.
+- **Approvals** — QC Manager inbox, oldest first, decision context side-by-side, approve /
+  reject-with-mandatory-comment inline.
+- **Rejection/Rework tag** — print-ready A5 tag per NCR (`/tag/[id]`), red
+  `REJECTION TAG - DO NOT USE` for Scrap / Return to supplier, amber `REWORK/REJECTION TAG`
+  otherwise, Ref. No. `362:QCA:0817:02`, QR code of the NCR number, two copies per sheet.
+- **Import/Export** — import provenance + live counts, register exports.
+- **Admin** — users, controlled vocabularies, audit log viewer.
+- **Notifications** — in-app queue events (email stubbed by design).
+
+## SAP
+
+There is no live SAP QM integration (by design, matching current practice): "Status in SAP" is
+a manual checklist (`sapClosed` + `sapClosingDate`) that unlocks after closure approval. The
+service layer isolates these fields so a real integration can replace the checklist later.
+
+## Project skill
+
+Domain knowledge (vocabularies, STATUS mapping table, brand tokens) lives in
+`../.claude/skills/ncr-alfanar/` — treat it as the source of truth alongside the Excel files.
+
+---
+
+*THE POWER OF EXCELLENCE — alfanar MV Switchgear · Quality Control*

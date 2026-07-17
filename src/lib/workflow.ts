@@ -181,9 +181,25 @@ export async function updateNcrFields(
   return prisma.$transaction(async (tx) => {
     const ncr = await tx.ncr.findUniqueOrThrow({ where: { id: ncrId } });
 
-    if (!canEditFields(actor.role, ncr.status as NcrStatus)) {
+    // Post-closure SAP checklist (spec 3.3): after Gate 2, QC staff may tick the
+    // manual "Closed in SAP" fields — everything else stays admin-only in CLOSED.
+    const keys = Object.keys(patch);
+    const SAP_CHECKLIST = ['sapClosed', 'sapClosingDate'] as const;
+    const sapChecklistOnly =
+      ncr.status === 'CLOSED' &&
+      keys.length > 0 &&
+      keys.every((k) => (SAP_CHECKLIST as readonly string[]).includes(k)) &&
+      (['QC_ENGINEER', 'QC_MANAGER', 'ADMIN'] as readonly Role[]).includes(actor.role);
+
+    if (!sapChecklistOnly && !canEditFields(actor.role, ncr.status as NcrStatus)) {
       throw new WorkflowError(`Role ${actor.role} may not edit an NCR in state ${ncr.status}`);
     }
+
+    // The disposition is a gated decision: it may only be set/changed while it is
+    // being proposed (before Gate 1). Once approved, changing it would silently
+    // invalidate the QC Manager's approval, so only these states allow edits —
+    // and ADMIN may still correct records out-of-band (audited).
+    const DISPOSITION_EDIT_STATES: readonly string[] = ['UNDER_REVIEW', 'DISPOSITION_PROPOSED'];
 
     const data: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(patch)) {
@@ -196,6 +212,15 @@ export async function updateNcrFields(
       ) {
         throw new WorkflowError(
           `"${key}" only becomes writable after closure approval (Gate 2)`,
+        );
+      }
+      if (
+        (key === 'disposition' || key === 'dispositionNote') &&
+        !DISPOSITION_EDIT_STATES.includes(ncr.status) &&
+        actor.role !== 'ADMIN'
+      ) {
+        throw new WorkflowError(
+          'The disposition can only be changed during review, before approval (Gate 1).',
         );
       }
       data[key] = value;

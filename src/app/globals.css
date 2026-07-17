@@ -1,26 +1,216 @@
 @import "tailwindcss";
 
+/* ── alfanar brand tokens (source: alfanar-brand-book .html via
+      .claude/skills/ncr-alfanar/references/brand-tokens.css) ─────────────── */
+@theme {
+  --color-navy: #0B2138;
+  --color-navy2: #0F2F4D;
+  --color-accent: #0A82C6;
+  --color-accent2: #0869A0;
+  --color-sky: #37A7E0;
+  --color-mist: #E9F2FA;
+  --color-mistwhite: #F4F8FC;
+  --color-ink: #16202C;
+  --color-ink2: #3C4B5B;
+  --color-steel: #6B7B8B;
+  --color-danger: #C0392B;
+  --color-success: #1E8E5A;
+  --color-warning: #C77D0A;
+  --color-line: rgba(10, 130, 198, 0.10);
+  --color-line2: rgba(11, 33, 56, 0.14);
+
+  --font-display: var(--font-poppins), sans-serif;
+  --font-body: var(--font-plex), sans-serif;
+  --font-mono: var(--font-plexmono), monospace;
+  --font-ar: var(--font-tajawal), sans-serif;
+
+  --radius-brand: 12px;
+}
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  /* raw aliases (parity with brand-tokens.css) */
+  --bg: #F4F8FC;
+  --panel: #E9F2FA;
+  --ink: #16202C;
+  --ink2: #3C4B5B;
+  --slate: #6B7B8B;
+  --navy: #0B2138;
+  --navy2: #0F2F4D;
+  --accent: #0A82C6;
+  --accent2: #0869A0;
+  --sky: #37A7E0;
+  --line: rgba(10, 130, 198, 0.10);
+  --line2: rgba(11, 33, 56, 0.14);
+  --danger: #C0392B;
+  --success: #1E8E5A;
+  --warning: #C77D0A;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: 14.5px;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1, h2, h3, h4 {
+  font-family: var(--font-display);
+  letter-spacing: -0.02em;
+}
+
+[lang="ar"], .font-ar {
+  font-family: var(--font-ar);
+}
+
+/* ── signature brand-book touches ──────────────────────────────────────── */
+.brand-grid-bg {
+  background-color: var(--bg);
+  background-image: linear-gradient(var(--line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--line) 1px, transparent 1px);
+  background-size: 34px 34px;
+}
+.micro-label {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--slate);
+}
+.secno {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--accent);
+  white-space: nowrap;
+  font-weight: 500;
+}
+.card {
+  background: #fff;
+  border: 1px solid var(--line2);
+  border-radius: 12px;
+}
+.card-hover {
+  transition: 0.3s;
+}
+.card-hover:hover {
+  border-color: var(--accent);
+  box-shadow: 0 10px 30px -12px rgba(10, 130, 198, 0.45);
+  transform: translateY(-3px);
+}
+
+/* radial sky glow (hero of the brand book) */
+.sky-glow {
+  position: relative;
+  overflow: hidden;
+}
+.sky-glow::after {
+  content: "";
+  position: absolute;
+  top: -30%;
+  right: -10%;
+  width: 55%;
+  aspect-ratio: 1;
+  background: radial-gradient(circle at 30% 30%, rgba(55, 167, 224, 0.20), rgba(10, 130, 198, 0.05) 45%, transparent 68%);
+  pointer-events: none;
+}
+
+/* ── controls ──────────────────────────────────────────────────────────── */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border-radius: 9px;
+  padding: 8px 16px;
+  font-weight: 500;
+  font-size: 13.5px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: 0.2s;
+  white-space: nowrap;
+}
+.btn-primary { background: var(--accent); color: #fff; }
+.btn-primary:hover { background: var(--accent2); }
+.btn-outline { border-color: var(--line2); background: #fff; color: var(--ink); }
+.btn-outline:hover { border-color: var(--accent); color: var(--accent); }
+.btn-danger { background: var(--danger); color: #fff; }
+.btn-danger:hover { filter: brightness(0.92); }
+.btn-success { background: var(--success); color: #fff; }
+.btn-success:hover { filter: brightness(0.92); }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.input, select.input, textarea.input {
+  width: 100%;
+  border: 1px solid var(--line2);
+  border-radius: 9px;
+  background: #fff;
+  padding: 8px 12px;
+  font-size: 13.5px;
+  color: var(--ink);
+  outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+.input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(10, 130, 198, 0.12);
+}
+.field-label {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--slate);
+  margin-bottom: 5px;
+  display: block;
+}
+
+/* data tables */
+.data-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.data-table th {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--slate);
+  text-align: left;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line2);
+  white-space: nowrap;
+  background: var(--panel);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+.data-table td {
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--line);
+  vertical-align: top;
+}
+.data-table tbody tr:hover { background: rgba(10, 130, 198, 0.04); }
+.mono { font-family: var(--font-mono); }
+
+/* status badges */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--line2);
+  white-space: nowrap;
+}
+.badge-dot { width: 6px; height: 6px; border-radius: 999px; }
+
+/* ── print: rejection / rework tag ─────────────────────────────────────── */
+@media print {
+  body { background: #fff; }
+  .no-print { display: none !important; }
+  .print-tag { page-break-inside: avoid; }
+  @page {
+    size: A5 landscape;
+    margin: 8mm;
+  }
 }

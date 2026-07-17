@@ -12,7 +12,14 @@ const COOKIE = 'ncr_session';
 const MAX_AGE_S = 60 * 60 * 12; // 12h shift-length session
 
 function secret(): string {
-  return process.env.SESSION_SECRET ?? 'dev-only-secret-change-me';
+  const s = process.env.SESSION_SECRET;
+  if (s && s.length >= 16) return s;
+  // A source-visible constant would let anyone forge a session cookie. Refuse to
+  // run without a real secret outside development.
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('SESSION_SECRET must be set (>=16 chars) in production');
+  }
+  return 'dev-only-secret-change-me';
 }
 
 interface SessionPayload {
