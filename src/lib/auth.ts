@@ -2,7 +2,7 @@
 // every server action / route handler re-reads the cookie and re-checks the role.
 import 'server-only';
 import { cookies } from 'next/headers';
-import { createHmac, timingSafeEqual } from 'crypto';
+import { createHmac, randomBytes, timingSafeEqual } from 'crypto';
 import bcrypt from 'bcryptjs';
 import { prisma } from './db';
 import type { Role } from './domain';
@@ -11,13 +11,18 @@ import { ROLES } from './domain';
 const COOKIE = 'ncr_session';
 const MAX_AGE_S = 60 * 60 * 12; // 12h shift-length session
 
+// Per-process random secret used in production when SESSION_SECRET is unset.
+// Unlike a source-visible constant it cannot be forged; the only trade-off is
+// that sessions don't survive a restart (users re-login after a redeploy), which
+// is fine for a zero-config deploy. Set SESSION_SECRET to keep sessions stable.
+let runtimeSecret: string | undefined;
+
 function secret(): string {
   const s = process.env.SESSION_SECRET;
   if (s && s.length >= 16) return s;
-  // A source-visible constant would let anyone forge a session cookie. Refuse to
-  // run without a real secret outside development.
   if (process.env.NODE_ENV === 'production') {
-    throw new Error('SESSION_SECRET must be set (>=16 chars) in production');
+    runtimeSecret ??= randomBytes(32).toString('hex');
+    return runtimeSecret;
   }
   return 'dev-only-secret-change-me';
 }
